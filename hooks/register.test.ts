@@ -498,6 +498,18 @@ describe('reading', () => {
     expect(w.spawns.at(-1)).toEqual(['tail', '-c', '+1', PATH])
   })
 
+  test('a failed refresh keeps the tree and says the read failed', async ($, on) => {
+    const { w, clock } = world(on)
+    await open($, clock)
+    w.files.delete(PATH)
+    await $.command.run({ command: 'tree', args: 'refresh', ...COMMAND })
+    await clock.settle()
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect((await rowKeys(ui)).length).toBe(6)
+    expect(await ui.find({ type: 'Text', text: /last read failed/ })).toBeDefined()
+    await ui.unmount()
+  })
+
   test('malformed lines are counted and shown; the rest of the tree stands', async ($, on) => {
     const { clock } = world(on, { files: new Map([[PATH, `${BRANCHED}{not json\n`]]) })
     await open($, clock)

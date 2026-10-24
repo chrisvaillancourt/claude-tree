@@ -411,7 +411,7 @@ export const register: Register = (on, options) => {
     const tree = cache && cache.sessionId === view.sessionId ? cache.tree : null
 
     const header = tree
-      ? `${list.length} of ${tree.rows.size} shown · ${FILTER_NAMES[view.filter]}${view.query ? ` · “${view.query}”` : ''}${cache && cache.bad > 0 ? ` · ${cache.bad} line${cache.bad === 1 ? '' : 's'} skipped (not JSON)` : ''}${view.status === 'loading' ? ' · reading…' : ''}`
+      ? `${list.length} of ${tree.rows.size} shown · ${FILTER_NAMES[view.filter]}${view.query ? ` · “${view.query}”` : ''}${cache && cache.bad > 0 ? ` · ${cache.bad} line${cache.bad === 1 ? '' : 's'} skipped (not JSON)` : ''}${view.status === 'loading' ? ' · reading…' : ''}${view.status === 'error' ? ` · last read failed: ${view.error ?? 'unknown'}` : ''}`
       : view.status === 'error' ? (view.error ?? 'Could not read the transcript.') : 'Reading the transcript…'
 
     const keyButtons = KEYS.map(k => (
