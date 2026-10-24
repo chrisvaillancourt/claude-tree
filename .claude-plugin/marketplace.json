@@ -1,0 +1,13 @@
+{
+  "name": "tree",
+  "owner": {
+    "name": "Chris Vaillancourt"
+  },
+  "plugins": [
+    {
+      "name": "tree",
+      "source": "./"
+    }
+  ],
+  "description": "Browse this session's conversation tree, branches included, label entries, and branch or rewind from any of them."
+}
