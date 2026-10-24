@@ -309,6 +309,7 @@ async function startSearch($: EngineInterface) {
 
 async function startLabel($: EngineInterface, uuid: string) {
   await update($, viewAtom, v => ({ ...v, mode: 'label' as const, cursor: uuid, notice: null }))
+  // The opening Button's key must differ from the field's, or the ring lands on the Button as it goes.
   await $.ui.focus({ requestId: PANE, key: 'label' }).catch(() => undefined)
 }
 
@@ -481,6 +482,13 @@ export const register: Register = (on, options) => {
             <Button key="search-done" onPress={toBrowse}>done</Button>
           </Box>
         )}
+        {view.mode === 'label' && Input && row && sessionId && (
+          <Box flexDirection="row" gap={1}>
+            <Input key="label" label="label " autoFocus placeholder="empty removes it" value={map[row.uuid] ?? ''} submitLabel="save"
+              onSubmit={(value: string) => saveLabel($, sessionId, row.uuid, value)} />
+            <Button key="label-cancel" onPress={toBrowse}>cancel</Button>
+          </Box>
+        )}
         {list.length === 0 && <Text dimColor>{tree.rows.size === 0 ? 'The transcript has no entries yet.' : 'Nothing matches.'}</Text>}
         {win.ids.map(id => {
           const isCursor = id === cursor
@@ -494,17 +502,10 @@ export const register: Register = (on, options) => {
         })}
         <Text dimColor>{cut(detail, width)}</Text>
         {previewLines.map(l => <Text>{cut(l, width)}</Text>)}
-        {view.mode === 'label' && Input && row && sessionId && (
-          <Box flexDirection="row" gap={1}>
-            <Input key="label" label="label " autoFocus value={map[row.uuid] ?? ''} submitLabel="save"
-              onSubmit={(value: string) => saveLabel($, sessionId, row.uuid, value)} />
-            <Button key="label-cancel" onPress={toBrowse}>cancel</Button>
-          </Box>
-        )}
         {!isTyping && (
           <Box flexDirection="row" gap={1} flexWrap="wrap">
             {Input && <Button key="search-open" plain hotkey="s" onPress={() => startSearch($)}>search</Button>}
-            {row && Input && <Button key="label" plain hotkey="l" onPress={() => startLabel($, row.uuid)}>label</Button>}
+            {row && Input && <Button key="label-open" plain hotkey="l" onPress={() => startLabel($, row.uuid)}>label</Button>}
             {canDraft && <Button key="draft" plain hotkey="e" onPress={() => startDraft($)}>draft</Button>}
             {row && <Button key="copy" plain hotkey="c" onPress={press => copyRow($, press.surface)}>copy</Button>}
             <Button key="rewind" plain hotkey="w" onPress={() => askHandOff($, 'rewind')}>/rewind</Button>
