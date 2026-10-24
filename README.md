@@ -1,24 +1,70 @@
 # tree
 
-A Claude Code mod (function-hook plugin). Replace this paragraph with what the mod does and why, in two or three sentences.
-
-> This repository is also the template for new mods: `scripts/new-mod.sh <mod-name>` creates `../claude-<mod-name>` with every `tree` renamed, a fresh git history and one commit. Delete this note in the new repo.
+A Claude Code mod that shows the current session as a tree: every branch the transcript keeps, including the ones `/rewind` and edited prompts leave behind. You can filter it, search it, bookmark entries with labels, and pick an entry up again: put an old prompt back in the prompt box, copy an entry, or hand off to `/rewind` and `/branch`. It is a browser, not a time machine: Claude Code has no API for moving the conversation to an arbitrary entry, so the mod never claims to.
 
 ## Behavior
 
-- What the mod does, when, and to which conversations (main only, or subagents too).
-- What it costs (model calls, tokens) and how the options bound it.
-- What it never does.
+- `/tree` opens a pane beside the transcript (fullscreen layout) or above the prompt (main screen). It reads this session's transcript file and draws it as a tree.
+- Rows are linked by their parent ids, in file order. Compaction boundaries are bridged, so the history before a `/compact` stays attached. Parallel tool calls are folded into one line of history; only real forks (an edited or rewound prompt) branch.
+- The path to the newest entry in the file is the **current path** (marked `●`); entries off it are drawn dim (`○`). Claude Code does not expose its own position, so right after `/rewind` the marker still shows the old leaf until you send the next message.
+- Only the visible window is drawn, so long sessions stay responsive. The pane refreshes itself after each main-conversation turn while it is open (`refreshOnTurn`), reading only the bytes added since the last read.
+- Main conversation only. Subagent rows (sidechains and `subagents/` transcripts) are not shown.
+- **It costs no model calls and no tokens**, apart from the one-line output of `/tree` itself, which joins the transcript. Reading a transcript costs local CPU: a 50 MB transcript is read in full once when the pane first opens, then only the new bytes.
+- **It never writes to transcripts** or anything under `~/.claude/projects/`. It never submits a prompt, never moves the conversation, and never restores files.
+
+### Keys
+
+The pane takes the keyboard when it opens (if the prompt box is empty). Tab and the arrows walk the focus ring; Enter on a row shows its details. Every action also has a hotkey:
+
+| Key | What it does |
+| --- | --- |
+| `j` / `k` | Next / previous row |
+| `n` / `p` | Page down / page up |
+| `1`–`5` | Filter: default, no tools, user only, labeled, all |
+| Search field | Type to filter by words (every word must appear; case ignored). Reach it with Tab. |
+| `l` | Label the selected entry (an empty label removes it) |
+| `e` | Put the selected prompt in the prompt box as a draft (asks first if the box holds text) and close the pane |
+| `c` | Copy the selected entry's text |
+| `w` | Close the pane and open `/rewind` (Claude Code's own picker; choose the entry there) |
+| `b` | Close the pane and run `/branch` (branches the conversation as it stands now, not at the selected entry) |
+| `o` | Copy the shell command that resumes this session as a fork in another terminal: `claude --resume <id> --fork-session` |
+| `r` | Read new entries now |
+| Esc | Close the pane |
+
+### Filters
+
+| Filter | Shows |
+| --- | --- |
+| default | Prompts, slash commands, replies, tool calls and results, compaction boundaries and summaries. Hides attachments, system notices, hidden (meta) rows and thinking-only rows. |
+| no tools | Default, less tool calls and tool results |
+| user only | Your prompts and slash commands |
+| labeled | Entries with a label |
+| all | Every row with an id |
 
 ## Command
 
-`/tree [on|off|status]`: show or set whether the mod is on for this session.
+`/tree [open|refresh|close|status|help]`: `open` (the default) opens the pane, `refresh` reads new entries, `close` closes it, `status` says what was read.
 
 ## Options
 
 | Option | Default | What it does |
 | --- | --- | --- |
-| `enabled` | `true` | Turn the mod on for new sessions. `/tree on|off` overrides it per session. |
+| `enabled` | `true` | Turn the mod on. Off, `/tree` answers that it is off and reads nothing. |
+| `defaultFilter` | `default` | The filter the pane opens with: `default`, `no-tools`, `user-only`, `labeled` or `all`. |
+| `refreshOnTurn` | `true` | Read new entries after each main-conversation turn while the pane is open. |
+| `maxTranscriptMB` | `256` | Refuse to read a transcript larger than this. |
+
+## Limitations
+
+- No jump-to-entry. The engine has no call that moves the conversation to an entry. `/rewind` (Claude Code's own picker) is the way back; the mod opens it but cannot preselect the entry. `/branch` branches from where the conversation stands now.
+- The current-path marker follows the newest row in the file, not the engine's own pointer (see Behavior).
+- Drafts restore text only: images and pasted files are not put back. An entry whose text the reader cut (over 200,000 characters) is not offered as a draft.
+- Labels are kept per session id. A `/branch` or `--fork-session` starts a new id, so labels don't follow. `$.store` holds all labels for all sessions in one file capped at 4 MiB.
+- Subagent transcripts are not shown. Rows from older versions that stored subagent turns inline (`isSidechain`) are left out.
+- The transcript location is worked out from the session id and folder (`$CLAUDE_CONFIG_DIR` or `~/.claude`, then `projects/<folder slug>/<id>.jsonl`), with a search of every project folder as the fallback. Reading uses `tail`, so the mod needs macOS or Linux.
+- Search matches words as substrings, not omp's fuzzy match, and covers each entry's kept text (prompts and replies in full up to the cut, tool rows by their first 300 characters).
+- Cut from omp's `/tree`: summaries of abandoned branches, re-answering a past question, branch-to-branch jumps and omp's exact key bindings.
+- Mobile has no search field; the rest works there by button.
 
 ## Install
 
