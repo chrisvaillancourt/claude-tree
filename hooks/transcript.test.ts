@@ -89,6 +89,24 @@ describe('rowFrom', () => {
     expect(o).toMatchObject({ kind: 'meta', text: 'Branched' })
   })
 
+  test('recorded human provenance wins over quoted markup, and the prose stays verbatim', async () => {
+    const human = { origin: { kind: 'human' } }
+    const quotedNote = 'Explain this transcript record: <task-notification>build done</task-notification>'
+    expect(rowFrom(user('h1', null, quotedNote, human), 1)).toMatchObject({ kind: 'prompt', text: quotedNote })
+    const quotedShell = 'Explain <bash-input>pwd</bash-input> without running it'
+    expect(rowFrom(user('h2', null, quotedShell, human), 1)).toMatchObject({ kind: 'prompt', text: quotedShell })
+    // Without an origin the same prose is still a prompt: a tag inside text is not the native shape.
+    expect(rowFrom(user('h3', null, quotedNote), 1)).toMatchObject({ kind: 'prompt', text: quotedNote })
+    expect(rowFrom(user('h4', null, quotedShell), 1)).toMatchObject({ kind: 'prompt', text: quotedShell })
+    const quotedCmd = 'what does <command-name>/model</command-name> do?'
+    expect(rowFrom(user('h5', null, quotedCmd, human), 1)).toMatchObject({ kind: 'prompt', text: quotedCmd })
+    // An explicitly human row whose whole content is a notification envelope is still the person's.
+    expect(rowFrom(user('h6', null, '<task-notification>x</task-notification>', human), 1)?.kind).toBe('prompt')
+    // A queued human prompt quoting markup keeps its text.
+    const q = rowFrom({ type: 'attachment', uuid: 'q', parentUuid: 'p', attachment: { type: 'queued_command', prompt: quotedCmd, commandMode: 'prompt', origin: { kind: 'human' } } }, 1)
+    expect(q).toMatchObject({ kind: 'prompt', text: quotedCmd })
+  })
+
   test('a sidechain row says so', async () => {
     expect(rowFrom(user('u', null, 'hi', { isSidechain: true }), 1)?.isSidechain).toBe(true)
   })

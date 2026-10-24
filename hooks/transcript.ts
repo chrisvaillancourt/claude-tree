@@ -30,34 +30,66 @@ function blocksText(content: unknown): string {
   return parts.join('\n')
 }
 
-const TAG = (name: string, text: string) => text.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))?.[1]?.trim()
-
-function stripped(text: string): { kind: Kind; text: string } | null {
-  const name = TAG('command-name', text)
-  if (name !== undefined) {
-    const args = TAG('command-args', text) ?? ''
-    const slash = name.startsWith('/') ? name : `/${name}`
-    return { kind: 'command', text: args ? `${slash} ${args}` : slash }
+/**
+ * The engine's native envelope: content that is nothing but `<tag>…</tag>` blocks
+ * (whitespace between). Null for anything else, so a tag a person quotes inside
+ * their prose is never decoded.
+ */
+export function envelope(text: string): Map<string, string> | null {
+  const tags = new Map<string, string>()
+  const block = /^\s*<([a-z][a-z-]*)>([\s\S]*?)<\/\1>\s*/
+  let rest = text
+  while (rest.trim() !== '') {
+    const m = rest.match(block)
+    if (!m) return null
+    tags.set(m[1] as string, (m[2] as string).trim())
+    rest = rest.slice(m[0].length)
   }
-  for (const t of ['local-command-stdout', 'local-command-stderr', 'local-command-caveat', 'bash-stdout', 'bash-stderr']) {
-    const inner = TAG(t, text)
+  return tags.size > 0 ? tags : null
+}
+
+const OUTPUT_TAGS = ['local-command-stdout', 'local-command-stderr', 'local-command-caveat', 'bash-stdout', 'bash-stderr']
+
+/** A whole-content slash-command envelope, as the engine records a command the person ran. */
+function commandFrom(tags: Map<string, string> | null): { kind: Kind; text: string } | null {
+  const name = tags?.get('command-name')
+  if (!tags || name === undefined) return null
+  const args = tags.get('command-args') ?? ''
+  const slash = name.startsWith('/') ? name : `/${name}`
+  return { kind: 'command', text: args ? `${slash} ${args}` : slash }
+}
+
+/** A whole-content command-output envelope: bookkeeping. */
+function outputFrom(tags: Map<string, string> | null): { kind: Kind; text: string } | null {
+  for (const t of OUTPUT_TAGS) {
+    const inner = tags?.get(t)
     if (inner !== undefined) return { kind: 'meta', text: inner }
   }
   return null
 }
 
-/** A user-role row: who sent it (its persisted `origin`) decides first, then its tags. */
+/**
+ * A user-role row. Recorded provenance wins: a non-human `origin` is a machine
+ * message; a human one is the person's prompt, kept verbatim unless the whole
+ * content is the engine's own command or shell envelope. Legacy inference (no
+ * origin) decodes only whole-content envelopes, never a tag inside prose.
+ */
 function userKind(o: Obj, content: unknown, text: string): { kind: Kind; text: string; origin?: string } {
   if (o.isCompactSummary === true) return { kind: 'summary', text }
   if (Array.isArray(content) && content.some(b => isObj(b) && b.type === 'tool_result')) return { kind: 'tool-result', text }
   if (o.isMeta === true) return { kind: 'meta', text }
   const origin = isObj(o.origin) ? str(o.origin.kind) : undefined
   if (origin !== undefined && origin !== 'human') return { kind: 'message', text, origin }
-  if (TAG('task-notification', text) !== undefined) return { kind: 'message', text, origin: 'task-notification' }
-  const tagged = stripped(text)
-  if (tagged) return tagged
-  const shell = TAG('bash-input', text)
+  const tags = envelope(text)
+  const command = commandFrom(tags)
+  if (command) return command
+  const shell = tags?.size === 1 ? tags.get('bash-input') : undefined
   if (shell !== undefined) return { kind: 'prompt', text: `! ${shell}` }
+  if (origin === undefined) {
+    if (tags?.has('task-notification')) return { kind: 'message', text, origin: 'task-notification' }
+    const output = outputFrom(tags)
+    if (output) return output
+  }
   return { kind: 'prompt', text }
 }
 
@@ -66,7 +98,7 @@ function queuedKind(a: Obj): { kind: Kind; text: string; origin?: string } {
   const text = blocksText(a.prompt)
   if (a.isMeta === true) return { kind: 'meta', text }
   const origin = isObj(a.origin) ? str(a.origin.kind) : undefined
-  if (origin === 'human' || (origin === undefined && a.commandMode === 'prompt')) return stripped(text) ?? { kind: 'prompt', text }
+  if (origin === 'human' || (origin === undefined && a.commandMode === 'prompt')) return commandFrom(envelope(text)) ?? { kind: 'prompt', text }
   return { kind: 'message', text, origin: origin ?? str(a.commandMode) ?? 'queued' }
 }
 
@@ -117,7 +149,7 @@ export function rowFrom(o: unknown, line: number): Row | null {
       found = { kind: 'compaction', text: `compacted${bits.length ? ` (${bits.join(', ')})` : ''}` }
     } else {
       const body = blocksText(content)
-      found = (subtype === 'local_command' ? stripped(body) : null) ?? { kind: 'system', text: body ? `${subtype}: ${body}` : subtype }
+      found = (subtype === 'local_command' ? (commandFrom(envelope(body)) ?? outputFrom(envelope(body))) : null) ?? { kind: 'system', text: body ? `${subtype}: ${body}` : subtype }
     }
   } else {
     found = { kind: 'other', text: type || 'row' }

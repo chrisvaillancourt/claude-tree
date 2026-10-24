@@ -645,4 +645,26 @@ describe('review round 1', () => {
     expect(w.filled).toEqual([{ text: 'and the TOML one', mode: 'replace' }])
     await ui.unmount()
   })
+
+  test('a human prompt quoting transcript markup stays user input and drafts verbatim', async ($, on) => {
+    const prompt = 'Explain this transcript record: <task-notification>build done</task-notification>'
+    const shell = 'Explain <bash-input>pwd</bash-input> without running it'
+    const text = user('h1', null, prompt, { origin: { kind: 'human' } }) + reply('a1', 'h1', 'ok') + user('h2', 'a1', shell, { origin: { kind: 'human' } })
+    const { w, clock } = world(on, { files: new Map([[PATH, text]]) })
+    await open($, clock)
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    await ui.press({ key: 'filter:user-only' })
+    expect(await rowKeys(ui)).toEqual(['row:h1', 'row:h2'])
+    await ui.press({ key: 'row:h1' })
+    await ui.press({ key: 'draft' })
+    expect(w.filled).toEqual([{ text: prompt, mode: 'replace' }])
+    await ui.unmount()
+    await $.command.run({ command: 'tree', args: '', ...COMMAND })
+    await clock.settle()
+    const ui2 = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    await ui2.press({ key: 'row:h2' })
+    await ui2.press({ key: 'draft' })
+    expect(w.filled.at(-1)).toEqual({ text: shell, mode: 'replace' })
+    await ui2.unmount()
+  })
 })
