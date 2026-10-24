@@ -59,6 +59,36 @@ describe('rowFrom', () => {
     expect(rowFrom(user('s', null, 'short'), 1)?.isCut).toBe(false)
   })
 
+  test('who sent a user-role row decides its kind: machine messages are not "you"', async () => {
+    expect(rowFrom(user('h', null, 'hello', { origin: { kind: 'human' } }), 1)?.kind).toBe('prompt')
+    const note = rowFrom(user('n', null, '<task-notification>done</task-notification>', { origin: { kind: 'task-notification' } }), 1)
+    expect(note).toMatchObject({ kind: 'message', origin: 'task-notification' })
+    expect(rowFrom(user('pl', null, 'from a plugin', { origin: { kind: 'plugin', name: 'x' } }), 1)).toMatchObject({ kind: 'message', origin: 'plugin' })
+    expect(rowFrom(user('pe', null, 'peer says', { origin: { kind: 'peer' }, isMeta: true }), 1)?.kind).toBe('meta')
+    expect(rowFrom(user('old', null, '<task-notification>x</task-notification>'), 1)?.kind).toBe('message')
+    expect(rowFrom(user('sh', null, '<bash-input>ls -la</bash-input>'), 1)).toMatchObject({ kind: 'prompt', text: '! ls -la' })
+  })
+
+  test('a queued human prompt keeps its text and counts as a prompt; a queued notification does not', async () => {
+    const q = rowFrom({ type: 'attachment', uuid: 'q', parentUuid: 'p', attachment: { type: 'queued_command', prompt: 'also check the parser', commandMode: 'prompt', origin: { kind: 'human' } } }, 1)
+    expect(q).toMatchObject({ kind: 'prompt', text: 'also check the parser' })
+    const qi = rowFrom({ type: 'attachment', uuid: 'qi', parentUuid: 'p', attachment: { type: 'queued_command', prompt: [{ type: 'text', text: 'see this' }, { type: 'image' }], commandMode: 'prompt', origin: { kind: 'human' } } }, 1)
+    expect(qi).toMatchObject({ kind: 'prompt', text: 'see this\n[image]' })
+    const qn = rowFrom({ type: 'attachment', uuid: 'qn', parentUuid: 'p', attachment: { type: 'queued_command', prompt: 'task done', commandMode: 'task-notification', origin: { kind: 'task-notification' } } }, 1)
+    expect(qn).toMatchObject({ kind: 'message', origin: 'task-notification' })
+    const qold = rowFrom({ type: 'attachment', uuid: 'qo', parentUuid: 'p', attachment: { type: 'queued_command', prompt: 'task done', commandMode: 'task-notification' } }, 1)
+    expect(qold?.kind).toBe('message')
+    const qpeer = rowFrom({ type: 'attachment', uuid: 'qp', parentUuid: 'p', attachment: { type: 'queued_command', prompt: 'hi', commandMode: 'prompt', isMeta: true, origin: { kind: 'peer' } } }, 1)
+    expect(qpeer?.kind).toBe('meta')
+  })
+
+  test('a locally recorded slash command is a command; its output is bookkeeping', async () => {
+    const c = rowFrom({ type: 'system', subtype: 'local_command', uuid: 'c', parentUuid: 'p', content: '<command-name>/branch</command-name>\n<command-args>new-name</command-args>' }, 1)
+    expect(c).toMatchObject({ kind: 'command', text: '/branch new-name' })
+    const o = rowFrom({ type: 'system', subtype: 'local_command', uuid: 'o', parentUuid: 'c', content: '<local-command-stdout>Branched</local-command-stdout>' }, 1)
+    expect(o).toMatchObject({ kind: 'meta', text: 'Branched' })
+  })
+
   test('a sidechain row says so', async () => {
     expect(rowFrom(user('u', null, 'hi', { isSidechain: true }), 1)?.isSidechain).toBe(true)
   })

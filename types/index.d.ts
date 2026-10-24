@@ -2,6 +2,7 @@
 export type Kind =
   | 'prompt' // something the person typed
   | 'command' // a slash command the person ran
+  | 'message' // a user-role row a machine sent: a task notification, a plugin's prompt
   | 'reply' // assistant text
   | 'tool' // an assistant tool call
   | 'tool-result' // a tool's result
@@ -25,6 +26,8 @@ export type Row = {
   text: string
   /** True when `text` was cut short. */
   isCut: boolean
+  /** Who sent a `message` row (its persisted origin kind). */
+  origin?: string
   /** The API message id of an assistant row. */
   messageId?: string
   /** The row was written by a subagent inline (older engines). */
@@ -53,8 +56,10 @@ export type View = {
   query: string
   /** The selected row's uuid. */
   cursor: string | null
-  /** What a confirm mode waits on: a prompt's uuid (draft) or a command name (hand-off). */
+  /** What a mode waits on: the entry being labeled or drafted (its uuid), or a command name (hand-off). */
   pending: string | null
+  /** The label editor's text while it is open. */
+  draft: string
   /** Show the selected row's details. */
   isExpanded: boolean
   mode: Mode

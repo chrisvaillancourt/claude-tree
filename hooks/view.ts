@@ -114,6 +114,7 @@ export function windowAround(list: readonly string[], cursor: string | null, siz
 const TAG: Record<Kind, string> = {
   prompt: 'you:',
   command: 'cmd:',
+  message: 'msg:',
   reply: 'claude:',
   tool: 'tool:',
   'tool-result': 'result:',
@@ -143,7 +144,8 @@ export function rowLine(tree: Tree, id: string, label: string | undefined, width
   if (!row) return ''
   const depth = Math.min(MAX_INDENT, tree.depth.get(id) ?? 0)
   const head = `${'  '.repeat(depth)}${tree.forkHeads.has(id) ? '├ ' : ''}${tree.onPath.has(id) ? '●' : '○'} `
-  const tag = label !== undefined ? `[${label}] ${TAG[row.kind]}` : TAG[row.kind]
+  const kindTag = row.kind === 'message' && row.origin ? `${row.origin}:` : TAG[row.kind]
+  const tag = label !== undefined ? `[${label}] ${kindTag}` : kindTag
   const preview = oneLine(row.text)
   return cut(preview ? `${head}${tag} ${preview}` : `${head}${tag}`, width)
 }

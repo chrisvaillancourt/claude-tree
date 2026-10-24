@@ -32,10 +32,7 @@ function blocksText(content: unknown): string {
 
 const TAG = (name: string, text: string) => text.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))?.[1]?.trim()
 
-function userKind(o: Obj, content: unknown, text: string): { kind: Kind; text: string } {
-  if (o.isCompactSummary === true) return { kind: 'summary', text }
-  if (Array.isArray(content) && content.some(b => isObj(b) && b.type === 'tool_result')) return { kind: 'tool-result', text }
-  if (o.isMeta === true) return { kind: 'meta', text }
+function stripped(text: string): { kind: Kind; text: string } | null {
   const name = TAG('command-name', text)
   if (name !== undefined) {
     const args = TAG('command-args', text) ?? ''
@@ -46,7 +43,31 @@ function userKind(o: Obj, content: unknown, text: string): { kind: Kind; text: s
     const inner = TAG(t, text)
     if (inner !== undefined) return { kind: 'meta', text: inner }
   }
+  return null
+}
+
+/** A user-role row: who sent it (its persisted `origin`) decides first, then its tags. */
+function userKind(o: Obj, content: unknown, text: string): { kind: Kind; text: string; origin?: string } {
+  if (o.isCompactSummary === true) return { kind: 'summary', text }
+  if (Array.isArray(content) && content.some(b => isObj(b) && b.type === 'tool_result')) return { kind: 'tool-result', text }
+  if (o.isMeta === true) return { kind: 'meta', text }
+  const origin = isObj(o.origin) ? str(o.origin.kind) : undefined
+  if (origin !== undefined && origin !== 'human') return { kind: 'message', text, origin }
+  if (TAG('task-notification', text) !== undefined) return { kind: 'message', text, origin: 'task-notification' }
+  const tagged = stripped(text)
+  if (tagged) return tagged
+  const shell = TAG('bash-input', text)
+  if (shell !== undefined) return { kind: 'prompt', text: `! ${shell}` }
   return { kind: 'prompt', text }
+}
+
+/** A queued prompt (`attachment/queued_command`): the person's keeps its text as a prompt. */
+function queuedKind(a: Obj): { kind: Kind; text: string; origin?: string } {
+  const text = blocksText(a.prompt)
+  if (a.isMeta === true) return { kind: 'meta', text }
+  const origin = isObj(a.origin) ? str(a.origin.kind) : undefined
+  if (origin === 'human' || (origin === undefined && a.commandMode === 'prompt')) return stripped(text) ?? { kind: 'prompt', text }
+  return { kind: 'message', text, origin: origin ?? str(a.commandMode) ?? 'queued' }
 }
 
 function toolText(b: Obj): string {
@@ -77,7 +98,7 @@ export function rowFrom(o: unknown, line: number): Row | null {
   const message = isObj(o.message) ? o.message : {}
   const content = message.content ?? o.content
   let parent = str(o.parentUuid) ?? null
-  let found: { kind: Kind; text: string }
+  let found: { kind: Kind; text: string; origin?: string }
   let messageId: string | undefined
   if (type === 'user') {
     found = userKind(o, content, blocksText(content))
@@ -86,7 +107,7 @@ export function rowFrom(o: unknown, line: number): Row | null {
     messageId = str(message.id)
   } else if (type === 'attachment') {
     const a = isObj(o.attachment) ? o.attachment : {}
-    found = { kind: 'attachment', text: str(a.type) ?? 'attachment' }
+    found = a.type === 'queued_command' ? queuedKind(a) : { kind: 'attachment', text: str(a.type) ?? 'attachment' }
   } else if (type === 'system') {
     const subtype = str(o.subtype) ?? 'system'
     if (subtype === 'compact_boundary') {
@@ -96,7 +117,7 @@ export function rowFrom(o: unknown, line: number): Row | null {
       found = { kind: 'compaction', text: `compacted${bits.length ? ` (${bits.join(', ')})` : ''}` }
     } else {
       const body = blocksText(content)
-      found = { kind: 'system', text: body ? `${subtype}: ${body}` : subtype }
+      found = (subtype === 'local_command' ? stripped(body) : null) ?? { kind: 'system', text: body ? `${subtype}: ${body}` : subtype }
     }
   } else {
     found = { kind: 'other', text: type || 'row' }
@@ -112,6 +133,7 @@ export function rowFrom(o: unknown, line: number): Row | null {
     isSidechain: o.isSidechain === true,
   }
   if (messageId !== undefined) row.messageId = messageId
+  if (found.origin !== undefined) row.origin = found.origin
   const ts = str(o.timestamp)
   if (ts !== undefined) row.timestamp = ts
   return row

@@ -7,6 +7,9 @@ A Claude Code mod that shows the current session as a tree: every branch the tra
 - `/tree` opens a pane beside the transcript (fullscreen layout) or above the prompt (main screen). It reads this session's transcript file and draws it as a tree.
 - Rows are linked by their parent ids, in file order. Compaction boundaries are bridged, so the history before a `/compact` stays attached. Parallel tool calls are folded into one line of history; only real forks (an edited or rewound prompt) branch.
 - The path to the newest entry in the file is the **current path** (marked `●`); entries off it are drawn dim (`○`). Claude Code does not expose its own position, so right after `/rewind` the marker still shows the old leaf until you send the next message.
+- Who sent a row decides how it shows: the transcript's recorded origin, then its type. Your typed and queued prompts are `you:`; a background task's notification or a plugin's prompt is tagged with its sender.
+- If a read fails, the pane says so on its own first line and marks the rows below as stale (from the last good read). If the transcript has moved to another project folder, a refresh looks for it once more before giving up.
+- Repairs the reader made to a damaged file (duplicate ids, cycles, missing parents) are counted in the pane and in `/tree status`; the affected rows are kept.
 - Only the visible window is drawn, so long sessions stay responsive. The pane refreshes itself after each main-conversation turn while it is open (`refreshOnTurn`), reading only the bytes added since the last read.
 - Main conversation only. Subagent rows (sidechains and `subagents/` transcripts) are not shown.
 - **It costs no model calls and no tokens**, apart from the one-line output of `/tree` itself, which joins the transcript. Reading a transcript costs local CPU: a 50 MB transcript is read in full once when the pane first opens, then only the new bytes.
@@ -22,7 +25,7 @@ The pane takes the keyboard when it opens (if the prompt box is empty). Tab walk
 | `n` / `p` | Page down / page up |
 | `1`–`5` | Filter: default, no tools, user only, labeled, all |
 | `s` | Search: type words (every word must appear; case ignored), Enter when done. While the field is open no hotkey is active, so letters only type. |
-| `l` | Label the selected entry, Enter to save (an empty label removes it). No hotkey is active while you type. |
+| `l` | Label the selected entry, Enter to save (an empty label removes it). The entry is fixed when the editor opens: the rows are not selectable and no hotkey is active until you save or cancel. |
 | `e` | Put the selected prompt in the prompt box as a draft (asks first if the box holds text) and close the pane |
 | `c` | Copy the selected entry's text |
 | `w` | Asks, then (`1`) closes the pane and opens `/rewind` (Claude Code's own picker; choose the entry there). `3` cancels. |
@@ -35,9 +38,9 @@ The pane takes the keyboard when it opens (if the prompt box is empty). Tab walk
 
 | Filter | Shows |
 | --- | --- |
-| default | Prompts, slash commands, replies, tool calls and results, compaction boundaries and summaries. Hides attachments, system notices, hidden (meta) rows and thinking-only rows. |
+| default | Prompts, slash commands, replies, tool calls and results, messages from machines (task notifications, a plugin's prompt; tagged with the sender, never `you:`), compaction boundaries and summaries. Hides attachments, system notices, hidden (meta) rows and thinking-only rows. |
 | no tools | Default, less tool calls and tool results |
-| user only | Your prompts and slash commands |
+| user only | What you sent: typed prompts, prompts queued while a turn ran, and slash commands (including locally recorded ones). Never a task notification or a plugin's prompt. |
 | labeled | Entries with a label |
 | all | Every row with an id |
 
@@ -49,7 +52,7 @@ The pane takes the keyboard when it opens (if the prompt box is empty). Tab walk
 
 | Option | Default | What it does |
 | --- | --- | --- |
-| `enabled` | `true` | Turn the mod on. Off, `/tree` answers that it is off and reads nothing. |
+| `enabled` | `true` | Turn the mod on. Off, `/tree` answers that it is off, nothing reads the transcript, and a pane left open from before is closed (or shows that it is off). |
 | `defaultFilter` | `default` | The filter the pane opens with: `default`, `no-tools`, `user-only`, `labeled` or `all`. |
 | `refreshOnTurn` | `true` | Read new entries after each main-conversation turn while the pane is open. |
 | `maxTranscriptMB` | `256` | Refuse to read a transcript larger than this. |

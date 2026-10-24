@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { configFrom, parseArgs, readResult } from './policy'
+import { configFrom, parseArgs, readResult, repairs } from './policy'
 
 describe('policy', () => {
   test('configFrom fills defaults and rejects values outside the options', async () => {
@@ -17,6 +17,11 @@ describe('policy', () => {
     expect(parseArgs('status')).toEqual({ kind: 'status' })
     expect(parseArgs('help')).toEqual({ kind: 'help' })
     expect(parseArgs('bogus')).toEqual({ kind: 'help', error: 'Unknown argument: bogus' })
+  })
+
+  test('repairs reads the graph fixes in a few words, or nothing', async () => {
+    expect(repairs({ duplicates: 0, cycles: 0, orphans: 0, sidechain: 3 })).toBe('')
+    expect(repairs({ duplicates: 1, cycles: 2, orphans: 1, sidechain: 0 })).toBe('repaired: 1 duplicate id, 2 cycles, 1 missing parent')
   })
 
   test('readResult says what a read found, malformed lines included', async () => {

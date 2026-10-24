@@ -31,3 +31,10 @@ export function readResult(r: { rows: number; forks: number; bad: number; mb: nu
   const was = r.bad === 1 ? 'was' : 'were'
   return r.bad > 0 ? `${base}; ${r.bad} line${r.bad === 1 ? '' : 's'} ${was} not JSON and ${was} skipped.` : `${base}.`
 }
+
+/** The graph repairs a read needed, in a few words; '' when none. Sidechain rows are left out by design, not repaired. */
+export function repairs(d: { duplicates: number; cycles: number; orphans: number; sidechain: number }): string {
+  const n = (count: number, one: string, many: string) => (count > 0 ? [`${count} ${count === 1 ? one : many}`] : [])
+  const parts = [...n(d.duplicates, 'duplicate id', 'duplicate ids'), ...n(d.cycles, 'cycle', 'cycles'), ...n(d.orphans, 'missing parent', 'missing parents')]
+  return parts.length ? `repaired: ${parts.join(', ')}` : ''
+}

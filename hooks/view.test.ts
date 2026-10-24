@@ -48,6 +48,16 @@ describe('filters', () => {
   })
 })
 
+describe('machine messages', () => {
+  test('a task notification shows by default but never as user input', async () => {
+    line = 0
+    const t = buildTree([row('u1', null, 'prompt', 'go'), { ...row('n1', 'u1', 'message', 'task done'), origin: 'task-notification' }])
+    expect(visible(t, 'default', '', {})).toEqual(['u1', 'n1'])
+    expect(visible(t, 'user-only', '', {})).toEqual(['u1'])
+    expect(rowLine(t, 'n1', undefined, 80)).toBe('● task-notification: task done')
+  })
+})
+
 describe('search', () => {
   test('every word must appear, case ignored, tree order kept', async () => {
     const t = sample()

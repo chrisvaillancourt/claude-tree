@@ -3,7 +3,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderSurface } from 'claude-code'
 
-import { USAGE, configFrom, parseArgs, readResult } from './policy'
+import { USAGE, configFrom, parseArgs, readResult, repairs } from './policy'
 import { parseChunk, projectSlug, utf8Length } from './transcript'
 import { buildTree } from './tree'
 import type { Tree } from './tree'
@@ -14,12 +14,12 @@ const PANE = 'tree'
 const TITLE = 'Session tree'
 
 const FRESH: View = {
-  sessionId: null, filter: 'default', query: '', cursor: null, pending: null, isExpanded: false,
+  sessionId: null, filter: 'default', query: '', cursor: null, pending: null, draft: '', isExpanded: false,
   mode: 'browse' as const, notice: null, rev: 0, status: 'idle', error: null,
 }
 
 // Change a shape tag when its type changes: an older stored value then reads as the initial one.
-const viewAtom = atom({ plugin: 'tree', key: 'view' } as const, FRESH, { shape: 'view-1' })
+const viewAtom = atom({ plugin: 'tree', key: 'view' } as const, FRESH, { shape: 'view-2' })
 const labelsAtom = atom({ plugin: 'tree', key: 'labels' } as const, { sessionId: null, map: {} } as Labels, { shape: 'labels-1' })
 
 /** What one read of a transcript holds. A module variable: a hot reload drops it and session.start reads again. */
@@ -105,13 +105,18 @@ async function readFrom($: EngineInterface, path: string, from: number): Promise
 }
 
 async function loadOnce($: EngineInterface, isFull: boolean): Promise<void> {
+  // The off switch holds here, under every caller: a surviving pane, a timer, a turn.
+  if (!config.enabled) return
   const mine = ++generation
   const sessionId = await $.session.id()
   const stale = async () => mine !== generation || (await $.session.id()) !== sessionId
   try {
     const own = cache !== null && cache.sessionId === sessionId ? cache : null
     if (!own) await update($, viewAtom, v => ({ ...(v.sessionId === sessionId ? v : { ...FRESH, filter: config.defaultFilter, sessionId }), status: 'loading' as const, error: null }))
-    const path = own?.path ?? (await findTranscript($, sessionId))
+    let path = own?.path ?? null
+    // A cached path that vanished (the transcript moved folders) is looked for once more.
+    if (path !== null && !(await $.fs.exists(path))) path = await findTranscript($, sessionId)
+    else if (path === null) path = await findTranscript($, sessionId)
     if (await stale()) return
     if (!path) throw new Error(`No transcript found for session ${sessionId}.`)
     const stat = await $.fs.stat(path)
@@ -184,7 +189,7 @@ function saveLabel($: EngineInterface, sessionId: string, uuid: string, text: st
       const next = setLabel(map, uuid, text)
       await $.store.set(`labels:${sessionId}`, next)
       await update($, labelsAtom, held => (held.sessionId === sessionId ? { sessionId, map: next } : held))
-      await update($, viewAtom, v => ({ ...v, mode: 'browse' as const, notice: text.trim() ? `Labeled “${text.trim()}”.` : 'Label removed.' }))
+      await update($, viewAtom, v => ({ ...v, mode: 'browse' as const, pending: null, draft: '', notice: text.trim() ? `Labeled “${text.trim()}”.` : 'Label removed.' }))
     })
     .catch(async err => {
       await setNotice($, `The label was not saved: ${err instanceof Error ? err.message : String(err)}`).catch(() => undefined)
@@ -307,8 +312,11 @@ async function startSearch($: EngineInterface) {
   await $.ui.focus({ requestId: PANE, key: 'search' }).catch(() => undefined)
 }
 
+/** Pins the entry and its current label: the editor saves to that entry whatever the cursor does. */
 async function startLabel($: EngineInterface, uuid: string) {
-  await update($, viewAtom, v => ({ ...v, mode: 'label' as const, cursor: uuid, notice: null }))
+  const labels = await read($, labelsAtom)
+  const draft = labels.map[uuid] ?? ''
+  await update($, viewAtom, v => ({ ...v, mode: 'label' as const, pending: uuid, draft, cursor: uuid, notice: null }))
   // The opening Button's key must differ from the field's, or the ring lands on the Button as it goes.
   await $.ui.focus({ requestId: PANE, key: 'label' }).catch(() => undefined)
 }
@@ -348,7 +356,10 @@ export const register: Register = (on, options) => {
     isInteractive = e.isInteractive
     const started = await next(e)
     // After a hot reload the pane may still be up while the parsed tree is gone.
-    if (config.enabled && e.isInteractive && (await isPaneOpen($).catch(() => false))) loadSoon($)
+    if (e.isInteractive && (await isPaneOpen($).catch(() => false))) {
+      if (config.enabled) loadSoon($)
+      else await $.ui.close({ id: PANE }).catch(() => undefined)
+    }
     return started
   })
 
@@ -365,7 +376,9 @@ export const register: Register = (on, options) => {
       const sid = await $.session.id()
       if (!cache || cache.sessionId !== sid) return { text: 'Nothing read yet. /tree opens the pane and reads the transcript.' }
       const forks = [...cache.tree.children.values()].filter(c => c.length > 1).length
-      return { text: readResult({ rows: cache.tree.rows.size, forks, bad: cache.bad, mb: cache.bytes / 1048576 }) }
+      const fixed = repairs(cache.tree.diagnostics)
+      const summary = readResult({ rows: cache.tree.rows.size, forks, bad: cache.bad, mb: cache.bytes / 1048576 })
+      return { text: fixed ? `${summary} Graph ${fixed}.` : summary }
     }
     if (cmd.kind === 'refresh') {
       loadSoon($)
@@ -397,7 +410,8 @@ export const register: Register = (on, options) => {
   on('ui.focus', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     const element = e.element
     if (e.origin.kind === 'person' && element?.startsWith('row:')) {
-      await update($, viewAtom, v => ({ ...v, cursor: element.slice(4) }))
+      // While the label editor is open its entry is pinned (and rows are not buttons then).
+      await update($, viewAtom, v => (v.mode === 'label' ? v : { ...v, cursor: element.slice(4) }))
     }
     return next(e)
   }).catch(($, e, next) => next(e)) // fail open: the ring moves whatever the cursor did
@@ -410,9 +424,22 @@ export const register: Register = (on, options) => {
     const { view, map, list, cursor } = await current($)
     const tree = cache && cache.sessionId === view.sessionId ? cache.tree : null
 
+    if (!config.enabled) {
+      return (
+        <Box flexDirection="column">
+          <Text>tree is off (the enabled option). Nothing is read; close this pane.</Text>
+        </Box>
+      )
+    }
+
+    const failed = view.status === 'error' ? `Last read failed: ${view.error ?? 'unknown error'}` : null
     const header = tree
-      ? `${list.length} of ${tree.rows.size} shown · ${FILTER_NAMES[view.filter]}${view.query ? ` · “${view.query}”` : ''}${cache && cache.bad > 0 ? ` · ${cache.bad} line${cache.bad === 1 ? '' : 's'} skipped (not JSON)` : ''}${view.status === 'loading' ? ' · reading…' : ''}${view.status === 'error' ? ` · last read failed: ${view.error ?? 'unknown'}` : ''}`
-      : view.status === 'error' ? (view.error ?? 'Could not read the transcript.') : 'Reading the transcript…'
+      ? `${failed ? 'stale, from the last good read · ' : ''}${list.length} of ${tree.rows.size} shown · ${FILTER_NAMES[view.filter]}${view.query ? ` · “${view.query}”` : ''}${view.status === 'loading' ? ' · reading…' : ''}`
+      : failed ? '' : 'Reading the transcript…'
+    const fixes = [
+      cache && cache.bad > 0 ? `${cache.bad} line${cache.bad === 1 ? '' : 's'} skipped (not JSON)` : '',
+      tree ? repairs(tree.diagnostics) : '',
+    ].filter(Boolean).join(' · ')
 
     const keyButtons = KEYS.map(k => (
       <Button key={k.key} plain hotkey={k.hotkey} onPress={() => {
@@ -425,13 +452,16 @@ export const register: Register = (on, options) => {
     if (!tree) {
       return (
         <Box flexDirection="column">
-          <Text dimColor={view.status !== 'error'}>{cut(header, width)}</Text>
+          {failed && <Text color="error">{cut(failed, width * 3)}</Text>}
+          {header && <Text dimColor>{cut(header, width)}</Text>}
           <Box flexDirection="row" gap={2}>{keyButtons[4]}</Box>
         </Box>
       )
     }
 
-    const row = cursor ? tree.rows.get(cursor) : undefined
+    // The label editor's entry is pinned when it opens, whatever the cursor does after.
+    const labelTarget = view.mode === 'label' && view.pending ? tree.rows.get(view.pending) : undefined
+    const row = labelTarget ?? (cursor ? tree.rows.get(cursor) : undefined)
     const room = Math.max(3, e.props.scroll.bodyRows - CHROME)
     const win = windowAround(list, cursor, room)
 
@@ -453,18 +483,21 @@ export const register: Register = (on, options) => {
     }
 
     // Typing modes draw no hotkeys at all: a typed letter must reach the field, never press a button.
-    const isTyping = Input !== undefined && (view.mode === 'search' || (view.mode === 'label' && row !== undefined))
+    const isLabeling = Input !== undefined && labelTarget !== undefined
+    const isTyping = isLabeling || (Input !== undefined && view.mode === 'search')
     const sessionId = view.sessionId
     const detail = row
       ? `${row.kind} · line ${row.line}${row.timestamp ? ` · ${row.timestamp.replace('T', ' ').slice(0, 19)}` : ''}${tree.onPath.has(row.uuid) ? ' · current path' : ' · off the current path'}`
       : 'No entry selected.'
     const previewLines = row ? row.text.split('\n').map(oneLine).filter(Boolean).slice(0, view.isExpanded ? 8 : 2) : []
     const canDraft = row !== undefined && (row.kind === 'prompt' || row.kind === 'command')
-    const toBrowse = () => update($, viewAtom, v => ({ ...v, mode: 'browse' as const }))
+    const toBrowse = () => update($, viewAtom, v => ({ ...v, mode: 'browse' as const, pending: null, draft: '' }))
 
     return (
       <Box flexDirection="column">
+        {failed && <Text color="error">{cut(failed, width * 3)}</Text>}
         <Text dimColor>{cut(header, width)}</Text>
+        {fixes && <Text dimColor>{cut(fixes, width)}</Text>}
         {!isTyping && (
           <Box flexDirection="row" gap={1} flexWrap="wrap">
             {FILTERS.map((f, i) => (
@@ -482,10 +515,11 @@ export const register: Register = (on, options) => {
             <Button key="search-done" onPress={toBrowse}>done</Button>
           </Box>
         )}
-        {view.mode === 'label' && Input && row && sessionId && (
+        {isLabeling && Input && labelTarget && sessionId && (
           <Box flexDirection="row" gap={1}>
-            <Input key="label" label="label " autoFocus placeholder="empty removes it" value={map[row.uuid] ?? ''} submitLabel="save"
-              onSubmit={(value: string) => saveLabel($, sessionId, row.uuid, value)} />
+            <Input key="label" label="label " autoFocus placeholder="empty removes it" value={view.draft} submitLabel="save"
+              onInput={(value: string) => update($, viewAtom, v => ({ ...v, draft: value }))}
+              onSubmit={(value: string) => saveLabel($, sessionId, labelTarget.uuid, value)} />
             <Button key="label-cancel" onPress={toBrowse}>cancel</Button>
           </Box>
         )}
@@ -493,6 +527,8 @@ export const register: Register = (on, options) => {
         {win.ids.map(id => {
           const isCursor = id === cursor
           const text = `${isCursor ? '›' : ' '}${rowLine(tree, id, map[id], width - 1)}`
+          // While labeling, rows are text: nothing can move the editor's pinned entry.
+          if (isLabeling) return <Text dimColor={!tree.onPath.has(id)}>{isCursor ? <Text inverse>{text}</Text> : text}</Text>
           return (
             <Button key={`row:${id}`} plain dimColor={!tree.onPath.has(id)} onPress={() =>
               update($, viewAtom, v => ({ ...v, cursor: id, isExpanded: v.cursor === id ? !v.isExpanded : true, notice: null }))}>
