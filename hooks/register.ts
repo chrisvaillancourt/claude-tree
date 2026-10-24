@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import { INITIAL, USAGE, configFrom, isActive, parseArgs, statusText } from './policy'
-import type { Config } from '../types'
+type Config = ReturnType<typeof configFrom>
 
 const NAME = 'tree'
 

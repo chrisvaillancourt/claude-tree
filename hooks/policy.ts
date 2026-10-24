@@ -1,6 +1,8 @@
 // Pure decisions: no `$`, no I/O. Put the mod's rules here and unit-test them
 // in policy.test.ts; register.ts only wires them to events.
-import type { Config, Mode, Session } from '../types'
+import type { Session } from '../types'
+type Mode = 'on' | 'off'
+type Config = { enabled: boolean }
 
 export const INITIAL: Session = { mode: null, turns: 0 }
 
