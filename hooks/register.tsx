@@ -276,7 +276,21 @@ const HANDOFF: Record<'rewind' | 'branch', string> = {
   branch: 'Ran /branch: it branches the conversation as it stands now, not at the selected entry.',
 }
 
-async function handOff($: EngineInterface, command: 'rewind' | 'branch') {
+const ASK: Record<'rewind' | 'branch', string> = {
+  rewind: 'Close the tree and open /rewind? You pick the entry in Claude Code’s own picker.',
+  branch: 'Close the tree and run /branch? It branches the conversation as it stands now, not at the selected entry.',
+}
+
+/** First press: check the command exists and ask. A stray letter never starts a built-in. */
+async function askHandOff($: EngineInterface, command: 'rewind' | 'branch') {
+  const names = (await $.command.list()).map(c => c.name)
+  if (!names.includes(command)) return setNotice($, `/${command} is not available in this session.`)
+  await update($, viewAtom, v => ({ ...v, mode: 'confirm-handoff' as const, pending: command, notice: null }))
+}
+
+async function handOff($: EngineInterface, command: string) {
+  await update($, viewAtom, v => ({ ...v, mode: 'browse' as const, pending: null }))
+  if (command !== 'rewind' && command !== 'branch') return
   const names = (await $.command.list()).map(c => c.name)
   if (!names.includes(command)) return setNotice($, `/${command} is not available in this session.`)
   await $.ui.close({ id: PANE })
@@ -286,6 +300,16 @@ async function handOff($: EngineInterface, command: 'rewind' | 'branch') {
   } catch (err) {
     toast($, `/${command} did not run: ${err instanceof Error ? err.message : String(err)}`)
   }
+}
+
+async function startSearch($: EngineInterface) {
+  await update($, viewAtom, v => ({ ...v, mode: 'search' as const, notice: null }))
+  await $.ui.focus({ requestId: PANE, key: 'search' }).catch(() => undefined)
+}
+
+async function startLabel($: EngineInterface, uuid: string) {
+  await update($, viewAtom, v => ({ ...v, mode: 'label' as const, cursor: uuid, notice: null }))
+  await $.ui.focus({ requestId: PANE, key: 'label' }).catch(() => undefined)
 }
 
 async function openPane($: EngineInterface) {
@@ -410,42 +434,52 @@ export const register: Register = (on, options) => {
     const room = Math.max(3, e.props.scroll.bodyRows - CHROME)
     const win = windowAround(list, cursor, room)
 
-    if (view.mode === 'confirm-draft') {
+    if (view.mode === 'confirm-draft' || view.mode === 'confirm-handoff') {
       const pending = view.pending
+      const isDraft = view.mode === 'confirm-draft'
       return (
         <Box flexDirection="column">
-          <Text>The prompt box already holds text. Put the selected prompt:</Text>
+          <Text>{isDraft ? 'The prompt box already holds text. Put the selected prompt:' : ASK[pending === 'rewind' ? 'rewind' : 'branch']}</Text>
           <Box flexDirection="row" gap={2}>
-            <Button key="draft-replace" hotkey="1" onPress={() => pending && fillDraft($, pending, 'replace')}>replace the draft</Button>
-            <Button key="draft-append" hotkey="2" onPress={() => pending && fillDraft($, pending, 'append')}>after the draft</Button>
-            <Button key="draft-cancel" hotkey="3" onPress={() => update($, viewAtom, v => ({ ...v, mode: 'browse' as const, pending: null }))}>cancel</Button>
+            {isDraft && <Button key="draft-replace" hotkey="1" onPress={() => pending && fillDraft($, pending, 'replace')}>replace the draft</Button>}
+            {isDraft && <Button key="draft-append" hotkey="2" onPress={() => pending && fillDraft($, pending, 'append')}>after the draft</Button>}
+            {isDraft && <Button key="draft-cancel" hotkey="3" onPress={() => update($, viewAtom, v => ({ ...v, mode: 'browse' as const, pending: null }))}>cancel</Button>}
+            {!isDraft && <Button key="handoff-run" hotkey="1" variant="primary" onPress={() => pending && handOff($, pending)}>{`/${pending ?? ''}`}</Button>}
+            {!isDraft && <Button key="handoff-cancel" hotkey="3" onPress={() => update($, viewAtom, v => ({ ...v, mode: 'browse' as const, pending: null }))}>cancel</Button>}
           </Box>
         </Box>
       )
     }
 
-    const isLabeling = view.mode === 'label' && row !== undefined
+    // Typing modes draw no hotkeys at all: a typed letter must reach the field, never press a button.
+    const isTyping = Input !== undefined && (view.mode === 'search' || (view.mode === 'label' && row !== undefined))
     const sessionId = view.sessionId
     const detail = row
       ? `${row.kind} · line ${row.line}${row.timestamp ? ` · ${row.timestamp.replace('T', ' ').slice(0, 19)}` : ''}${tree.onPath.has(row.uuid) ? ' · current path' : ' · off the current path'}`
       : 'No entry selected.'
     const previewLines = row ? row.text.split('\n').map(oneLine).filter(Boolean).slice(0, view.isExpanded ? 8 : 2) : []
     const canDraft = row !== undefined && (row.kind === 'prompt' || row.kind === 'command')
+    const toBrowse = () => update($, viewAtom, v => ({ ...v, mode: 'browse' as const }))
 
     return (
       <Box flexDirection="column">
         <Text dimColor>{cut(header, width)}</Text>
-        <Box flexDirection="row" gap={1} flexWrap="wrap">
-          {FILTERS.map((f, i) => (
-            <Button key={`filter:${f}`} plain hotkey={String(i + 1)} onPress={() => setFilter($, f)}>
-              {f === view.filter ? <Text bold>{FILTER_NAMES[f]}</Text> : FILTER_NAMES[f]}
-            </Button>
-          ))}
-        </Box>
-        {Input && !isLabeling && (
-          <Input key="search" label="search " placeholder="words to find" value={view.query} submitLabel="find"
-            onInput={(value: string) => update($, viewAtom, v => ({ ...v, query: value }))}
-            onSubmit={(value: string) => update($, viewAtom, v => ({ ...v, query: value }))} />
+        {!isTyping && (
+          <Box flexDirection="row" gap={1} flexWrap="wrap">
+            {FILTERS.map((f, i) => (
+              <Button key={`filter:${f}`} plain hotkey={String(i + 1)} onPress={() => setFilter($, f)}>
+                {f === view.filter ? <Text bold>{FILTER_NAMES[f]}</Text> : FILTER_NAMES[f]}
+              </Button>
+            ))}
+          </Box>
+        )}
+        {Input && view.mode === 'search' && (
+          <Box flexDirection="row" gap={1}>
+            <Input key="search" label="search " autoFocus placeholder="words to find" value={view.query} submitLabel="done"
+              onInput={(value: string) => update($, viewAtom, v => ({ ...v, query: value }))}
+              onSubmit={(value: string) => update($, viewAtom, v => ({ ...v, query: value, mode: 'browse' as const }))} />
+            <Button key="search-done" onPress={toBrowse}>done</Button>
+          </Box>
         )}
         {list.length === 0 && <Text dimColor>{tree.rows.size === 0 ? 'The transcript has no entries yet.' : 'Nothing matches.'}</Text>}
         {win.ids.map(id => {
@@ -460,22 +494,25 @@ export const register: Register = (on, options) => {
         })}
         <Text dimColor>{cut(detail, width)}</Text>
         {previewLines.map(l => <Text>{cut(l, width)}</Text>)}
-        {isLabeling && Input && row && sessionId && (
+        {view.mode === 'label' && Input && row && sessionId && (
           <Box flexDirection="row" gap={1}>
             <Input key="label" label="label " autoFocus value={map[row.uuid] ?? ''} submitLabel="save"
               onSubmit={(value: string) => saveLabel($, sessionId, row.uuid, value)} />
-            <Button key="label-cancel" onPress={() => update($, viewAtom, v => ({ ...v, mode: 'browse' as const }))}>cancel</Button>
+            <Button key="label-cancel" onPress={toBrowse}>cancel</Button>
           </Box>
         )}
-        <Box flexDirection="row" gap={1} flexWrap="wrap">
-          {row && !isLabeling && Input && <Button key="label" plain hotkey="l" onPress={() => update($, viewAtom, v => ({ ...v, mode: 'label' as const, cursor: row.uuid }))}>label</Button>}
-          {canDraft && <Button key="draft" plain hotkey="e" onPress={() => startDraft($)}>draft</Button>}
-          {row && <Button key="copy" plain hotkey="c" onPress={press => copyRow($, press.surface)}>copy</Button>}
-          <Button key="rewind" plain hotkey="w" onPress={() => handOff($, 'rewind')}>/rewind</Button>
-          <Button key="branch" plain hotkey="b" onPress={() => handOff($, 'branch')}>/branch</Button>
-          <Button key="resume" plain hotkey="o" onPress={press => copyResume($, press.surface)}>fork cmd</Button>
-        </Box>
-        <Box flexDirection="row" gap={1} flexWrap="wrap">{keyButtons}</Box>
+        {!isTyping && (
+          <Box flexDirection="row" gap={1} flexWrap="wrap">
+            {Input && <Button key="search-open" plain hotkey="s" onPress={() => startSearch($)}>search</Button>}
+            {row && Input && <Button key="label" plain hotkey="l" onPress={() => startLabel($, row.uuid)}>label</Button>}
+            {canDraft && <Button key="draft" plain hotkey="e" onPress={() => startDraft($)}>draft</Button>}
+            {row && <Button key="copy" plain hotkey="c" onPress={press => copyRow($, press.surface)}>copy</Button>}
+            <Button key="rewind" plain hotkey="w" onPress={() => askHandOff($, 'rewind')}>/rewind</Button>
+            <Button key="branch" plain hotkey="b" onPress={() => askHandOff($, 'branch')}>/branch</Button>
+            <Button key="resume" plain hotkey="o" onPress={press => copyResume($, press.surface)}>fork cmd</Button>
+          </Box>
+        )}
+        {!isTyping && <Box flexDirection="row" gap={1} flexWrap="wrap">{keyButtons}</Box>}
         {view.notice && <Text key="notice">{cut(view.notice, width * 2)}</Text>}
       </Box>
     )

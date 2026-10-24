@@ -14,19 +14,19 @@ A Claude Code mod that shows the current session as a tree: every branch the tra
 
 ### Keys
 
-The pane takes the keyboard when it opens (if the prompt box is empty). Tab and the arrows walk the focus ring; Enter on a row shows its details. Every action also has a hotkey:
+The pane takes the keyboard when it opens (if the prompt box is empty). Tab walks the focus ring; Enter on a row selects it and shows more of it. Every action has a hotkey:
 
 | Key | What it does |
 | --- | --- |
 | `j` / `k` | Next / previous row |
 | `n` / `p` | Page down / page up |
 | `1`–`5` | Filter: default, no tools, user only, labeled, all |
-| Search field | Type to filter by words (every word must appear; case ignored). Reach it with Tab. |
-| `l` | Label the selected entry (an empty label removes it) |
+| `s` | Search: type words (every word must appear; case ignored), Enter when done. While the field is open no hotkey is active, so letters only type. |
+| `l` | Label the selected entry, Enter to save (an empty label removes it). No hotkey is active while you type. |
 | `e` | Put the selected prompt in the prompt box as a draft (asks first if the box holds text) and close the pane |
 | `c` | Copy the selected entry's text |
-| `w` | Close the pane and open `/rewind` (Claude Code's own picker; choose the entry there) |
-| `b` | Close the pane and run `/branch` (branches the conversation as it stands now, not at the selected entry) |
+| `w` | Asks, then (`1`) closes the pane and opens `/rewind` (Claude Code's own picker; choose the entry there). `3` cancels. |
+| `b` | Asks, then (`1`) closes the pane and runs `/branch` (branches the conversation as it stands now, not at the selected entry). `3` cancels. |
 | `o` | Copy the shell command that resumes this session as a fork in another terminal: `claude --resume <id> --fork-session` |
 | `r` | Read new entries now |
 | Esc | Close the pane |

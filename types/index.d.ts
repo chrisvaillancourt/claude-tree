@@ -43,7 +43,7 @@ export type Config = {
   maxTranscriptMB: number
 }
 
-export type Mode = 'browse' | 'label' | 'confirm-draft'
+export type Mode = 'browse' | 'search' | 'label' | 'confirm-draft' | 'confirm-handoff'
 
 /** The pane's view of the session. Lives in $.state, so it survives a hot reload. */
 export type View = {
@@ -53,7 +53,7 @@ export type View = {
   query: string
   /** The selected row's uuid. */
   cursor: string | null
-  /** The prompt waiting on a replace-or-append choice. */
+  /** What a confirm mode waits on: a prompt's uuid (draft) or a command name (hand-off). */
   pending: string | null
   /** Show the selected row's details. */
   isExpanded: boolean
