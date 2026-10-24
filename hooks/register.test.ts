@@ -519,6 +519,16 @@ describe('reading', () => {
     expect(w.spawns.length).toBe(2)
   })
 
+  test('after a hot reload with the pane still up, session.start reads the transcript again', async ($, on) => {
+    const { w, clock } = world(on, { panes: ['tree'] })
+    await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+    await clock.settle()
+    expect(w.spawns).toEqual([['tail', '-c', '+1', PATH]])
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect((await rowKeys(ui)).length).toBe(6)
+    await ui.unmount()
+  })
+
   test('a closed pane is not refreshed', async ($, on) => {
     const { w, clock } = world(on)
     await open($, clock)

@@ -64,7 +64,7 @@ The pane takes the keyboard when it opens (if the prompt box is empty). Tab walk
 - The transcript location is worked out from the session id and folder (`$CLAUDE_CONFIG_DIR` or `~/.claude`, then `projects/<folder slug>/<id>.jsonl`), with a search of every project folder as the fallback. Reading uses `tail`, so the mod needs macOS or Linux.
 - Search matches words as substrings, not omp's fuzzy match, and covers each entry's kept text (prompts and replies in full up to the cut, tool rows by their first 300 characters).
 - Cut from omp's `/tree`: summaries of abandoned branches, re-answering a past question, branch-to-branch jumps and omp's exact key bindings.
-- Mobile has no search field; the rest works there by button.
+- Mobile has no text fields, so no search and no labeling there; the rest works by button.
 
 ## Install
 
