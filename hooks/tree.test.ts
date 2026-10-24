@@ -75,6 +75,43 @@ describe('buildTree', () => {
     expect(t.onPath.size).toBe(8)
   })
 
+  test('three parallel calls, each result off its own call, fold into one line', async () => {
+    reset()
+    const t = buildTree([
+      row('u1', null),
+      row('t1', 'u1', 'tool', { messageId: 'M' }), row('t2', 't1', 'tool', { messageId: 'M' }), row('t3', 't2', 'tool', { messageId: 'M' }),
+      row('r3', 't3', 'tool-result'), row('r2', 't2', 'tool-result'), row('r1', 't1', 'tool-result'),
+      row('a1', 'r1', 'reply', { messageId: 'N' }),
+    ])
+    expect(t.forkHeads.size).toBe(0)
+    expect(t.order.filter(id => !t.onPath.has(id))).toEqual([])
+    expect(t.order).toHaveLength(8)
+    expect(t.order.at(-1)).toBe('a1')
+  })
+
+  test('a Skill call whose result carries context rows folds too', async () => {
+    reset()
+    const t = buildTree([
+      row('u1', null),
+      row('skill', 'u1', 'tool', { messageId: 'M' }), row('bash', 'skill', 'tool', { messageId: 'M' }),
+      row('skill-result', 'skill', 'tool-result'), row('skill-context', 'skill-result', 'meta'), row('skill-attachment', 'skill-context', 'attachment'),
+      row('bash-result', 'bash', 'tool-result'), row('answer', 'bash-result', 'reply', { messageId: 'N' }),
+    ])
+    expect(t.forkHeads.size).toBe(0)
+    expect(t.order.filter(id => !t.onPath.has(id))).toEqual([])
+  })
+
+  test('a real prompt fork beside parallel calls stays a fork', async () => {
+    reset()
+    const t = buildTree([
+      row('u1', null),
+      row('t1', 'u1', 'tool', { messageId: 'M' }), row('t2', 't1', 'tool', { messageId: 'M' }),
+      row('r2', 't2', 'tool-result'), row('r1', 't1', 'tool-result'), row('a1', 'r1', 'reply', { messageId: 'N' }),
+      row('p1', 'a1'), row('p2', 'a1'),
+    ])
+    expect([...t.forkHeads].sort()).toEqual(['p1', 'p2'])
+  })
+
   test('a dead-end branch that holds a prompt is a real fork, not a fragment', async () => {
     reset()
     const t = buildTree([row('u1', null), row('a1', 'u1', 'reply', { messageId: 'M' }), row('u2', 'a1'), row('u3', 'a1')])

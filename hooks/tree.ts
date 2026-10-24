@@ -32,7 +32,7 @@ export type Tree = {
   diagnostics: Diagnostics
 }
 
-const FRAGMENT_KINDS: ReadonlySet<Kind> = new Set<Kind>(['tool', 'thinking', 'reply', 'tool-result', 'attachment'])
+const FRAGMENT_KINDS: ReadonlySet<Kind> = new Set<Kind>(['tool', 'thinking', 'reply', 'tool-result', 'attachment', 'meta'])
 const ASSISTANT_KINDS: ReadonlySet<Kind> = new Set<Kind>(['tool', 'thinking', 'reply'])
 
 export function buildTree(input: readonly Row[]): Tree {
@@ -97,6 +97,8 @@ export function buildTree(input: readonly Row[]): Tree {
   }
 
   // Parallel tool calls: splice linear dead-end fragments before the continuing child.
+  // Bottom-up (latest parent first), reading the already folded children, so a fragment
+  // that itself held a parallel fork (three or more calls) is linear by the time its parent looks.
   const children = new Map<string, string[]>()
   for (const [p, list] of raw) children.set(p, [...list])
   // A fragment stays inside one API message: an assistant row of another message ends it.
@@ -106,16 +108,17 @@ export function buildTree(input: readonly Row[]): Tree {
       const r = rows.get(id)
       if (!r || !FRAGMENT_KINDS.has(r.kind)) return null
       if (ASSISTANT_KINDS.has(r.kind) && r.messageId !== msg) return null
-      const kids = raw.get(id) ?? []
+      const kids = children.get(id) ?? []
       if (kids.length === 0) return id
       if (kids.length > 1) return null
       id = kids[0] as string
     }
   }
-  for (const [p, list] of raw) {
+  const parents = [...raw.keys()].sort((a, b) => (rows.get(b)?.line ?? 0) - (rows.get(a)?.line ?? 0))
+  for (const p of parents) {
+    const list = children.get(p) ?? []
     if (list.length < 2) continue
-    const pRow = rows.get(p)
-    const msg = pRow?.messageId
+    const msg = rows.get(p)?.messageId
     if (msg === undefined) continue
     const frags: { head: string; end: string }[] = []
     const rest: string[] = []
