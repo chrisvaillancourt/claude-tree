@@ -7,8 +7,33 @@
     "enabled": {
       "type": "boolean",
       "title": "Enabled",
-      "description": "Turn the mod on for new sessions. /tree on|off overrides it for a session.",
+      "description": "Turn the mod on. Off, /tree answers that it is off and reads nothing.",
       "default": true
+    },
+    "defaultFilter": {
+      "type": "string",
+      "title": "Default filter",
+      "description": "The filter the tree pane opens with.",
+      "options": [
+        "default",
+        "no-tools",
+        "user-only",
+        "labeled",
+        "all"
+      ],
+      "default": "default"
+    },
+    "refreshOnTurn": {
+      "type": "boolean",
+      "title": "Refresh after each turn",
+      "description": "Read new entries after each main-conversation turn while the pane is open.",
+      "default": true
+    },
+    "maxTranscriptMB": {
+      "type": "number",
+      "title": "Largest transcript (MB)",
+      "description": "Refuse to read a transcript larger than this.",
+      "default": 256
     }
   },
   "author": {

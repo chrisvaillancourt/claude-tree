@@ -1,24 +1,26 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { INITIAL, configFrom, isActive, parseArgs, statusText } from './policy'
+import { configFrom, parseArgs, readResult } from './policy'
 
 describe('policy', () => {
-  test('parseArgs reads on, off, status and rejects the rest', async () => {
-    expect(parseArgs('')).toEqual({ kind: 'status' })
-    expect(parseArgs(' ON ')).toEqual({ kind: 'set', mode: 'on' })
-    expect(parseArgs('off')).toEqual({ kind: 'set', mode: 'off' })
+  test('configFrom fills defaults and rejects values outside the options', async () => {
+    expect(configFrom({})).toEqual({ enabled: true, defaultFilter: 'default', refreshOnTurn: true, maxTranscriptMB: 256 })
+    expect(configFrom({ enabled: false, defaultFilter: 'user-only', refreshOnTurn: false, maxTranscriptMB: 10 }))
+      .toEqual({ enabled: false, defaultFilter: 'user-only', refreshOnTurn: false, maxTranscriptMB: 10 })
+    expect(configFrom({ defaultFilter: 'bogus', maxTranscriptMB: -3 })).toMatchObject({ defaultFilter: 'default', maxTranscriptMB: 256 })
+  })
+
+  test('parseArgs: open by default, the subcommands, help on the rest', async () => {
+    expect(parseArgs('')).toEqual({ kind: 'open' })
+    expect(parseArgs(' Refresh ')).toEqual({ kind: 'refresh' })
+    expect(parseArgs('close')).toEqual({ kind: 'close' })
+    expect(parseArgs('status')).toEqual({ kind: 'status' })
+    expect(parseArgs('help')).toEqual({ kind: 'help' })
     expect(parseArgs('bogus')).toEqual({ kind: 'help', error: 'Unknown argument: bogus' })
   })
 
-  test('a session override beats the enabled option', async () => {
-    expect(isActive(configFrom({}), INITIAL)).toBe(true)
-    expect(isActive(configFrom({ enabled: false }), INITIAL)).toBe(false)
-    expect(isActive(configFrom({ enabled: false }), { ...INITIAL, mode: 'on' })).toBe(true)
-    expect(isActive(configFrom({}), { ...INITIAL, mode: 'off' })).toBe(false)
-  })
-
-  test('statusText says where the state comes from', async () => {
-    expect(statusText(configFrom({}), INITIAL)).toContain('from the enabled option')
-    expect(statusText(configFrom({}), { mode: 'off', turns: 2 })).toBe('off (set for this session); 2 main turns seen.')
+  test('readResult says what a read found, malformed lines included', async () => {
+    expect(readResult({ rows: 12, forks: 1, bad: 0, mb: 1.24 })).toBe('12 entries, 1 fork, 1.2 MB read.')
+    expect(readResult({ rows: 3, forks: 2, bad: 2, mb: 0 })).toBe('3 entries, 2 forks, 0.0 MB read; 2 lines were not JSON and were skipped.')
   })
 })

@@ -43,9 +43,6 @@ export type Config = {
   maxTranscriptMB: number
 }
 
-/** The template's on/off session record; removed with the template command. */
-export type Session = { mode: 'on' | 'off' | null; turns: number }
-
 export type Mode = 'browse' | 'label' | 'confirm-draft'
 
 /** The pane's view of the session. Lives in $.state, so it survives a hot reload. */
@@ -56,6 +53,8 @@ export type View = {
   query: string
   /** The selected row's uuid. */
   cursor: string | null
+  /** The prompt waiting on a replace-or-append choice. */
+  pending: string | null
   /** Show the selected row's details. */
   isExpanded: boolean
   mode: Mode
@@ -73,6 +72,6 @@ export type Labels = { sessionId: string | null; map: Record<string, string> }
 
 declare module 'claude-code' {
   interface PluginState {
-    'tree': { view: Shaped<View>; labels: Shaped<Labels>; session: Shaped<Session> }
+    'tree': { view: Shaped<View>; labels: Shaped<Labels> }
   }
 }
